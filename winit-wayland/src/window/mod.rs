@@ -12,6 +12,7 @@ use sctk::reexports::client::protocol::wl_surface::WlSurface;
 use sctk::reexports::client::{Proxy, QueueHandle};
 use sctk::reexports::protocols::xdg::activation::v1::client::xdg_activation_v1::XdgActivationV1;
 use sctk::shell::WaylandSurface;
+use sctk::shell::xdg::XdgSurface;
 use sctk::shell::xdg::window::{Window as SctkWindow, WindowDecorations};
 use tracing::warn;
 use winit_core::cursor::Cursor;
@@ -30,7 +31,7 @@ use super::event_loop::sink::EventSink;
 use super::output::MonitorHandle;
 use super::state::WinitState;
 use super::types::xdg_activation::XdgActivationTokenData;
-use crate::{WindowAttributesWayland, output};
+use crate::{HasXdgSurfaceHandle, WindowAttributesWayland, XdgSurfaceHandle, output};
 
 pub(crate) mod state;
 
@@ -652,6 +653,17 @@ impl CoreWindow for Window {
     /// Get the raw-window-handle v0.6 window handle.
     fn rwh_06_window_handle(&self) -> &dyn rwh_06::HasWindowHandle {
         self
+    }
+}
+
+impl HasXdgSurfaceHandle for Window {
+    fn xdg_surface_handle(&self) -> Result<XdgSurfaceHandle<'_>, rwh_06::HandleError> {
+        let raw = {
+            let ptr = self.window.xdg_surface().id().as_ptr();
+            std::ptr::NonNull::new(ptr as *mut _).expect("wl_surface will never be null")
+        };
+
+        unsafe { Ok(XdgSurfaceHandle::borrow_raw(raw)) }
     }
 }
 
