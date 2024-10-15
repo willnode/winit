@@ -379,6 +379,22 @@ impl EventLoop {
                 }
             }
 
+            if compositor_update.suggested_bounds {
+                let suggested_bounds = self.with_state(|state| {
+                    let windows = state.windows.get_mut();
+                    let window = windows.get(&window_id).unwrap().lock().unwrap();
+
+                    window
+                        .last_configure
+                        .as_ref()
+                        .and_then(|c| c.suggested_bounds)
+                        .map(|b| dpi::PhysicalSize::new(b.0, b.1))
+                        .clone()
+                });
+                let event = WindowEvent::SuggestedBounds(suggested_bounds);
+                app.window_event(&self.active_event_loop, window_id, event);
+            }
+
             // NOTE: Rescale changed the physical size which winit operates in, thus we should
             // resize.
             if compositor_update.resized || compositor_update.scale_changed {

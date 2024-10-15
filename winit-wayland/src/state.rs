@@ -301,15 +301,20 @@ impl WindowHandler for WinitState {
             self.window_compositor_updates.len() - 1
         };
 
-        // Populate the configure to the window.
-        self.window_compositor_updates[pos].resized |= self
+        let mut winit_window = self
             .windows
             .get_mut()
             .get_mut(&window_id)
             .expect("got configure for dead window.")
             .lock()
-            .unwrap()
-            .configure(configure, &self.shm, &self.subcompositor_state);
+            .unwrap();
+        // Populate the configure to the window.
+
+        self.window_compositor_updates[pos].suggested_bounds |= configure.suggested_bounds
+            != winit_window.last_configure.as_ref().and_then(|last| last.suggested_bounds);
+
+        self.window_compositor_updates[pos].resized |=
+            winit_window.configure(configure, &self.shm, &self.subcompositor_state);
 
         // NOTE: configure demands wl_surface::commit, however winit doesn't commit on behalf of the
         // users, since it can break a lot of things, thus it'll ask users to redraw instead.
@@ -437,11 +442,20 @@ pub struct WindowCompositorUpdate {
 
     /// Close the window.
     pub close_window: bool,
+
+    /// New suggested bounds.
+    pub suggested_bounds: bool,
 }
 
 impl WindowCompositorUpdate {
     fn new(window_id: WindowId) -> Self {
-        Self { window_id, resized: false, scale_changed: false, close_window: false }
+        Self {
+            window_id,
+            resized: false,
+            scale_changed: false,
+            close_window: false,
+            suggested_bounds: false,
+        }
     }
 }
 
