@@ -388,7 +388,7 @@ impl EventLoop {
                         .last_configure
                         .as_ref()
                         .and_then(|c| c.suggested_bounds)
-                        .map(|b| dpi::PhysicalSize::new(b.0, b.1))
+                        .map(|b| dpi::LogicalSize::new(b.0, b.1).to_physical(window.scale_factor()))
                         .clone()
                 });
                 let event = WindowEvent::SuggestedBounds(suggested_bounds);
