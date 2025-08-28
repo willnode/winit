@@ -919,7 +919,8 @@ pub trait Window: AsAny + Send + Sync {
     ///   separate spaces are not preferred.
     ///
     ///   The dock and the menu bar are disabled in exclusive fullscreen mode.
-    /// - **Wayland:** Does not support exclusive fullscreen mode and will no-op a request.
+    /// - **Orbital / Wayland:** Does not support exclusive fullscreen mode and will no-op a
+    ///   request.
     /// - **Windows:** Screen saver is disabled in fullscreen mode.
     /// - **Android / Orbital:** Unsupported.
     /// - **Web:** Passing a [`MonitorHandle`] or [`VideoModeHandle`] that was not created with
@@ -937,9 +938,9 @@ pub trait Window: AsAny + Send + Sync {
     ///
     /// ## Platform-specific
     ///
-    /// - **Android / Orbital:** Will always return `None`.
+    /// - **Android:** Will always return `None`.
+    /// - **Orbital / Web:** Can only return `None` or `Borderless(None)`.
     /// - **Wayland:** Can return `Borderless(None)` when there are no monitors.
-    /// - **Web:** Can only return `None` or `Borderless(None)`.
     fn fullscreen(&self) -> Option<Fullscreen>;
 
     /// Turn window decorations on or off.
