@@ -97,17 +97,44 @@ pub trait HasXdgSurfaceHandle {
     fn xdg_surface_handle(&self) -> Result<XdgSurfaceHandle<'_>, HandleError>;
 }
 
+pub struct XdgToplevelHandle<'a> {
+    raw: NonNull<c_void>,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> XdgToplevelHandle<'a> {
+    /// Create a `XdgToplevelHandle` from a [`NonNull<c_void>`]
+    pub unsafe fn borrow_raw(raw: NonNull<c_void>) -> Self {
+        Self { raw, _marker: PhantomData }
+    }
+
+    /// Get the underlying raw xdg_toplevel handle.
+    pub fn as_raw(&self) -> NonNull<c_void> {
+        self.raw
+    }
+}
+
+pub trait HasXdgToplevelHandle {
+    fn xdg_toplevel_handle(&self) -> Result<XdgToplevelHandle<'_>, HandleError>;
+}
+
 /// Additional methods on [`Window`] that are specific to Wayland.
 ///
 /// [`Window`]: crate::window::Window
 pub trait WindowExtWayland {
     fn xdg_surface_handle<'a>(&'a self) -> Option<&dyn HasXdgSurfaceHandle>;
+    fn xdg_toplevel_handle<'a>(&'a self) -> Option<&dyn HasXdgToplevelHandle>;
 }
 
 impl WindowExtWayland for dyn CoreWindow + '_ {
     fn xdg_surface_handle(&self) -> Option<&dyn HasXdgSurfaceHandle> {
         let window = self.as_any().downcast_ref::<crate::platform_impl::wayland::Window>();
         window.map(|w| w as &dyn HasXdgSurfaceHandle)
+    }
+
+    fn xdg_toplevel_handle(&self) -> Option<&dyn HasXdgToplevelHandle> {
+        let window = self.as_any().downcast_ref::<crate::platform_impl::wayland::Window>();
+        window.map(|w| w as &dyn HasXdgToplevelHandle)
     }
 }
 

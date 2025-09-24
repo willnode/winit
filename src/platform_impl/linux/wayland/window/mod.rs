@@ -23,7 +23,7 @@ use crate::error::{NotSupportedError, RequestError};
 use crate::event::{Ime, WindowEvent};
 use crate::event_loop::AsyncRequestSerial;
 use crate::monitor::MonitorHandle as CoreMonitorHandle;
-use crate::platform::wayland::{HasXdgSurfaceHandle, XdgSurfaceHandle};
+use crate::platform::wayland::{HasXdgSurfaceHandle, HasXdgToplevelHandle, XdgSurfaceHandle};
 use crate::platform_impl::{Fullscreen, MonitorHandle as PlatformMonitorHandle};
 use crate::window::{
     Cursor, CursorGrabMode, Fullscreen as CoreFullscreen, ImePurpose, ResizeDirection, Theme,
@@ -672,6 +672,19 @@ impl HasXdgSurfaceHandle for Window {
         };
 
         unsafe { Ok(XdgSurfaceHandle::borrow_raw(raw)) }
+    }
+}
+
+impl HasXdgToplevelHandle for Window {
+    fn xdg_toplevel_handle(
+        &self,
+    ) -> Result<crate::platform::wayland::XdgToplevelHandle<'_>, rwh_06::HandleError> {
+        let raw = {
+            let ptr = self.window.xdg_toplevel().id().as_ptr();
+            std::ptr::NonNull::new(ptr as *mut _).expect("xdg_toplevel will never be null")
+        };
+
+        unsafe { Ok(crate::platform::wayland::XdgToplevelHandle::borrow_raw(raw)) }
     }
 }
 
