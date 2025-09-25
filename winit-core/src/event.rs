@@ -375,6 +375,11 @@ pub enum WindowEvent {
     /// - **iOS / Android / Web / Orbital / Windows:** Unsupported.
     SuggestedBounds(Option<PhysicalSize<u32>>),
 
+    /// The window state has changed.
+    ///
+    /// - **iOS / Android / Web / Orbital / Windows:** Unsupported.
+    WindowStateChanged,
+
     /// The system window theme has changed.
     ///
     /// Applications might wish to react to this to change the theme of the content of the window

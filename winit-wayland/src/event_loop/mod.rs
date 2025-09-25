@@ -395,6 +395,11 @@ impl EventLoop {
                 app.window_event(&self.active_event_loop, window_id, event);
             }
 
+            if compositor_update.xdg_window_state.is_some() {
+                let event = WindowEvent::WindowStateChanged;
+                app.window_event(&self.active_event_loop, window_id, event);
+            }
+
             // NOTE: Rescale changed the physical size which winit operates in, thus we should
             // resize.
             if compositor_update.resized || compositor_update.scale_changed {

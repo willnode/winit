@@ -313,6 +313,12 @@ impl WindowHandler for WinitState {
         self.window_compositor_updates[pos].suggested_bounds |= configure.suggested_bounds
             != winit_window.last_configure.as_ref().and_then(|last| last.suggested_bounds);
 
+        self.window_compositor_updates[pos].xdg_window_state = winit_window
+            .last_configure
+            .as_ref()
+            .is_none_or(|last| last.state != configure.state)
+            .then_some(configure.state);
+
         self.window_compositor_updates[pos].resized |=
             winit_window.configure(configure, &self.shm, &self.subcompositor_state);
 
@@ -445,6 +451,9 @@ pub struct WindowCompositorUpdate {
 
     /// New suggested bounds.
     pub suggested_bounds: bool,
+
+    /// New xdg window state.
+    pub xdg_window_state: Option<sctk::reexports::csd_frame::WindowState>,
 }
 
 impl WindowCompositorUpdate {
@@ -455,6 +464,7 @@ impl WindowCompositorUpdate {
             scale_changed: false,
             close_window: false,
             suggested_bounds: false,
+            xdg_window_state: None,
         }
     }
 }

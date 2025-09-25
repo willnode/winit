@@ -557,7 +557,9 @@ impl ApplicationHandler for Application {
             | WindowEvent::DragDropped { .. }
             | WindowEvent::Destroyed
             | WindowEvent::Ime(_)
-            | WindowEvent::Moved(_) => (),
+            | WindowEvent::Moved(_)
+            | WindowEvent::SuggestedBounds(_)
+            | WindowEvent::WindowStateChanged => (),
         }
     }
 
