@@ -18,6 +18,7 @@ use std::os::raw::c_void;
 use std::ptr::NonNull;
 
 use rwh_06::HandleError;
+use sctk::reexports::csd_frame::WindowState;
 
 use crate::event_loop::{ActiveEventLoop, EventLoop, EventLoopBuilder};
 use crate::monitor::MonitorHandle;
@@ -124,6 +125,8 @@ pub trait HasXdgToplevelHandle {
 pub trait WindowExtWayland {
     fn xdg_surface_handle<'a>(&'a self) -> Option<&dyn HasXdgSurfaceHandle>;
     fn xdg_toplevel_handle<'a>(&'a self) -> Option<&dyn HasXdgToplevelHandle>;
+    /// Get the state of the window
+    fn window_state(&self) -> Option<WindowState>;
 }
 
 impl WindowExtWayland for dyn CoreWindow + '_ {
@@ -135,6 +138,11 @@ impl WindowExtWayland for dyn CoreWindow + '_ {
     fn xdg_toplevel_handle(&self) -> Option<&dyn HasXdgToplevelHandle> {
         let window = self.as_any().downcast_ref::<crate::platform_impl::wayland::Window>();
         window.map(|w| w as &dyn HasXdgToplevelHandle)
+    }
+
+    fn window_state(&self) -> Option<WindowState> {
+        let window = self.as_any().downcast_ref::<crate::platform_impl::wayland::Window>();
+        window.and_then(|w| w.xdg_window_state())
     }
 }
 

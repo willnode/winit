@@ -163,6 +163,11 @@ pub enum WindowEvent {
     /// - **iOS / Android / Web / Orbital / Windows:** Unsupported.
     SuggestedBounds(Option<PhysicalSize<u32>>),
 
+    /// The window state has changed.
+    ///
+    /// - **iOS / Android / Web / Orbital / Windows:** Unsupported.
+    WindowStateChanged,
+
     /// The position of the window has changed. Contains the window's new position.
     ///
     /// ## Platform-specific

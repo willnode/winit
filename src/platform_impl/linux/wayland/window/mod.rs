@@ -241,6 +241,11 @@ impl Window {
     pub fn surface(&self) -> &WlSurface {
         self.window.wl_surface()
     }
+
+    #[inline]
+    pub fn xdg_window_state(&self) -> Option<sctk::reexports::csd_frame::WindowState> {
+        self.window_state.lock().unwrap().last_configure.as_ref().map(|c| c.state)
+    }
 }
 
 impl Drop for Window {
