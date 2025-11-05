@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::{mem, slice};
 
 use bitflags::bitflags;
@@ -19,6 +19,7 @@ use crate::keyboard::{
     Key, KeyCode, KeyLocation, ModifiersKeys, ModifiersState, NamedKey, NativeKey, NativeKeyCode,
     PhysicalKey,
 };
+use crate::platform::pump_events::PumpStatus;
 use crate::window::{
     CustomCursor as RootCustomCursor, CustomCursorSource, Theme, WindowId as RootWindowId,
 };
@@ -129,6 +130,15 @@ fn convert_scancode(scancode: u8) -> (PhysicalKey, Option<NamedKey>) {
         _ => return (PhysicalKey::Unidentified(NativeKeyCode::Unidentified), None),
     };
     (PhysicalKey::Code(key_code), named_key_opt)
+}
+
+pub fn scancode_to_physicalkey(scancode: u32) -> PhysicalKey {
+    convert_scancode(scancode.try_into().unwrap_or_default()).0
+}
+
+pub fn physicalkey_to_scancode(physical_key: PhysicalKey) -> Option<u32> {
+    // TODO
+    None
 }
 
 fn element_state(pressed: bool) -> event::ElementState {
@@ -272,6 +282,7 @@ impl EventState {
 }
 
 pub struct EventLoop<T> {
+    start_cause: StartCause,
     windows: Vec<(Arc<RedoxSocket>, EventState)>,
     window_target: event_loop::ActiveEventLoop,
     user_events_sender: mpsc::Sender<T>,
@@ -304,6 +315,7 @@ impl<T: 'static> EventLoop<T> {
             .map_err(|error| EventLoopError::Os(os_error!(error)))?;
 
         Ok(Self {
+            start_cause: StartCause::Init,
             windows: Vec::new(),
             window_target: event_loop::ActiveEventLoop {
                 p: ActiveEventLoop {
@@ -497,7 +509,7 @@ impl<T: 'static> EventLoop<T> {
         }
     }
 
-    pub fn run<F>(mut self, mut event_handler_inner: F) -> Result<(), EventLoopError>
+    fn single_iteration<F>(&mut self, event_handler_inner: &mut F)
     where
         F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
     {
@@ -506,132 +518,184 @@ impl<T: 'static> EventLoop<T> {
                 event_handler_inner(event, window_target);
             };
 
-        let mut start_cause = StartCause::Init;
+        event_handler(event::Event::NewEvents(self.start_cause), &self.window_target);
 
-        loop {
-            event_handler(event::Event::NewEvents(start_cause), &self.window_target);
+        if self.start_cause == StartCause::Init {
+            event_handler(event::Event::Resumed, &self.window_target);
+        }
 
-            if start_cause == StartCause::Init {
-                event_handler(event::Event::Resumed, &self.window_target);
+        // Handle window creates.
+        while let Some(window) = {
+            let mut creates = self.window_target.p.creates.lock().unwrap();
+            creates.pop_front()
+        } {
+            let window_id = WindowId { fd: window.fd as u64 };
+
+            let mut buf: [u8; 4096] = [0; 4096];
+            let path = window.fpath(&mut buf).expect("failed to read properties");
+            let properties = WindowProperties::new(path);
+
+            self.windows.push((window, EventState::default()));
+
+            // Send resize event on create to indicate first size.
+            event_handler(
+                event::Event::WindowEvent {
+                    window_id: RootWindowId(window_id),
+                    event: event::WindowEvent::Resized((properties.w, properties.h).into()),
+                },
+                &self.window_target,
+            );
+
+            // Send resize event on create to indicate first position.
+            event_handler(
+                event::Event::WindowEvent {
+                    window_id: RootWindowId(window_id),
+                    event: event::WindowEvent::Moved((properties.x, properties.y).into()),
+                },
+                &self.window_target,
+            );
+        }
+
+        // Handle window destroys.
+        while let Some(destroy_id) = {
+            let mut destroys = self.window_target.p.destroys.lock().unwrap();
+            destroys.pop_front()
+        } {
+            event_handler(
+                event::Event::WindowEvent {
+                    window_id: RootWindowId(destroy_id),
+                    event: event::WindowEvent::Destroyed,
+                },
+                &self.window_target,
+            );
+
+            self.windows.retain(|(window, _event_state)| window.fd as u64 != destroy_id.fd);
+        }
+
+        // Handle window events.
+        let mut i = 0;
+        // While loop is used here because the same window may be processed more than once.
+        while let Some((window, event_state)) = self.windows.get_mut(i) {
+            let window_id = WindowId { fd: window.fd as u64 };
+
+            let mut event_buf = [0u8; 16 * mem::size_of::<orbclient::Event>()];
+            let count =
+                syscall::read(window.fd, &mut event_buf).expect("failed to read window events");
+            // Safety: orbclient::Event is a packed struct designed to be transferred over a
+            // socket.
+            let events = unsafe {
+                slice::from_raw_parts(
+                    event_buf.as_ptr() as *const orbclient::Event,
+                    count / mem::size_of::<orbclient::Event>(),
+                )
+            };
+
+            for orbital_event in events {
+                Self::process_event(window_id, orbital_event.to_option(), event_state, |event| {
+                    event_handler(event, &self.window_target)
+                });
             }
 
-            // Handle window creates.
-            while let Some(window) = {
-                let mut creates = self.window_target.p.creates.lock().unwrap();
-                creates.pop_front()
-            } {
-                let window_id = WindowId { fd: window.fd as u64 };
-
-                let mut buf: [u8; 4096] = [0; 4096];
-                let path = window.fpath(&mut buf).expect("failed to read properties");
-                let properties = WindowProperties::new(path);
-
-                self.windows.push((window, EventState::default()));
-
-                // Send resize event on create to indicate first size.
-                event_handler(
-                    event::Event::WindowEvent {
-                        window_id: RootWindowId(window_id),
-                        event: event::WindowEvent::Resized((properties.w, properties.h).into()),
-                    },
-                    &self.window_target,
-                );
-
-                // Send resize event on create to indicate first position.
-                event_handler(
-                    event::Event::WindowEvent {
-                        window_id: RootWindowId(window_id),
-                        event: event::WindowEvent::Moved((properties.x, properties.y).into()),
-                    },
-                    &self.window_target,
-                );
+            if count == event_buf.len() {
+                // If event buf was full, process same window again to ensure all events are
+                // drained.
+                continue;
             }
 
-            // Handle window destroys.
-            while let Some(destroy_id) = {
-                let mut destroys = self.window_target.p.destroys.lock().unwrap();
-                destroys.pop_front()
-            } {
-                event_handler(
-                    event::Event::WindowEvent {
-                        window_id: RootWindowId(destroy_id),
-                        event: event::WindowEvent::Destroyed,
-                    },
-                    &self.window_target,
-                );
+            // Acknowledge the latest resize event.
+            if let Some((w, h)) = event_state.resize_opt.take() {
+                window
+                    .write(format!("S,{w},{h}").as_bytes())
+                    .expect("failed to acknowledge resize");
 
-                self.windows.retain(|(window, _event_state)| window.fd as u64 != destroy_id.fd);
-            }
-
-            // Handle window events.
-            let mut i = 0;
-            // While loop is used here because the same window may be processed more than once.
-            while let Some((window, event_state)) = self.windows.get_mut(i) {
-                let window_id = WindowId { fd: window.fd as u64 };
-
-                let mut event_buf = [0u8; 16 * mem::size_of::<orbclient::Event>()];
-                let count =
-                    syscall::read(window.fd, &mut event_buf).expect("failed to read window events");
-                // Safety: orbclient::Event is a packed struct designed to be transferred over a
-                // socket.
-                let events = unsafe {
-                    slice::from_raw_parts(
-                        event_buf.as_ptr() as *const orbclient::Event,
-                        count / mem::size_of::<orbclient::Event>(),
-                    )
-                };
-
-                for orbital_event in events {
-                    Self::process_event(
-                        window_id,
-                        orbital_event.to_option(),
-                        event_state,
-                        |event| event_handler(event, &self.window_target),
-                    );
-                }
-
-                if count == event_buf.len() {
-                    // If event buf was full, process same window again to ensure all events are
-                    // drained.
-                    continue;
-                }
-
-                // Acknowledge the latest resize event.
-                if let Some((w, h)) = event_state.resize_opt.take() {
-                    window
-                        .write(format!("S,{w},{h}").as_bytes())
-                        .expect("failed to acknowledge resize");
-
-                    // Require redraw after resize.
-                    let mut redraws = self.window_target.p.redraws.lock().unwrap();
-                    if !redraws.contains(&window_id) {
-                        redraws.push_back(window_id);
-                    }
-                }
-
-                // Move to next window.
-                i += 1;
-            }
-
-            while let Ok(event) = self.user_events_receiver.try_recv() {
-                event_handler(event::Event::UserEvent(event), &self.window_target);
-            }
-
-            // To avoid deadlocks the redraws lock is not held during event processing.
-            while let Some(window_id) = {
+                // Require redraw after resize.
                 let mut redraws = self.window_target.p.redraws.lock().unwrap();
-                redraws.pop_front()
-            } {
-                event_handler(
-                    event::Event::WindowEvent {
-                        window_id: RootWindowId(window_id),
-                        event: event::WindowEvent::RedrawRequested,
-                    },
-                    &self.window_target,
-                );
+                if !redraws.contains(&window_id) {
+                    redraws.push_back(window_id);
+                }
             }
 
-            event_handler(event::Event::AboutToWait, &self.window_target);
+            // Move to next window.
+            i += 1;
+        }
+
+        while let Ok(event) = self.user_events_receiver.try_recv() {
+            event_handler(event::Event::UserEvent(event), &self.window_target);
+        }
+
+        // To avoid deadlocks the redraws lock is not held during event processing.
+        while let Some(window_id) = {
+            let mut redraws = self.window_target.p.redraws.lock().unwrap();
+            redraws.pop_front()
+        } {
+            event_handler(
+                event::Event::WindowEvent {
+                    window_id: RootWindowId(window_id),
+                    event: event::WindowEvent::RedrawRequested,
+                },
+                &self.window_target,
+            );
+        }
+
+        event_handler(event::Event::AboutToWait, &self.window_target);
+    }
+
+    fn wait_events(&mut self, requested_resume: Option<Instant>) {
+        // Re-using wake socket caused extra wake events before because there were leftover
+        // timeouts, and then new timeouts were added each time a spurious timeout expired.
+        let timeout_socket = TimeSocket::open().unwrap();
+
+        self.window_target
+            .p
+            .event_socket
+            .write(&syscall::Event {
+                id: timeout_socket.0.fd,
+                flags: syscall::EventFlags::EVENT_READ,
+                data: 0,
+            })
+            .unwrap();
+
+        let start = Instant::now();
+        if let Some(instant) = requested_resume {
+            let mut time = timeout_socket.current_time().unwrap();
+
+            if let Some(duration) = instant.checked_duration_since(start) {
+                time.tv_sec += duration.as_secs() as i64;
+                time.tv_nsec += duration.subsec_nanos() as i32;
+                // Normalize timespec so tv_nsec is not greater than one second.
+                while time.tv_nsec >= 1_000_000_000 {
+                    time.tv_sec += 1;
+                    time.tv_nsec -= 1_000_000_000;
+                }
+            }
+
+            timeout_socket.timeout(&time).unwrap();
+        }
+
+        // Wait for event if needed.
+        let mut event = syscall::Event::default();
+        self.window_target.p.event_socket.read(&mut event).unwrap();
+
+        // TODO: handle spurious wakeups (redraw caused wakeup but redraw already handled)
+        match requested_resume {
+            Some(requested_resume) if event.id == timeout_socket.0.fd => {
+                // If the event is from the special timeout socket, report that resume
+                // time was reached.
+                self.start_cause = StartCause::ResumeTimeReached { start, requested_resume };
+            },
+            _ => {
+                // Normal window event or spurious timeout.
+                self.start_cause = StartCause::WaitCancelled { start, requested_resume };
+            },
+        }
+    }
+
+    pub fn run<F>(mut self, mut event_handler_inner: F) -> Result<(), EventLoopError>
+    where
+        F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
+    {
+        loop {
+            self.single_iteration(&mut event_handler_inner);
 
             if self.window_target.p.exiting() {
                 break;
@@ -639,65 +703,44 @@ impl<T: 'static> EventLoop<T> {
 
             let requested_resume = match self.window_target.p.control_flow() {
                 ControlFlow::Poll => {
-                    start_cause = StartCause::Poll;
+                    self.start_cause = StartCause::Poll;
                     continue;
                 },
                 ControlFlow::Wait => None,
                 ControlFlow::WaitUntil(instant) => Some(instant),
             };
 
-            // Re-using wake socket caused extra wake events before because there were leftover
-            // timeouts, and then new timeouts were added each time a spurious timeout expired.
-            let timeout_socket = TimeSocket::open().unwrap();
-
-            self.window_target
-                .p
-                .event_socket
-                .write(&syscall::Event {
-                    id: timeout_socket.0.fd,
-                    flags: syscall::EventFlags::EVENT_READ,
-                    data: 0,
-                })
-                .unwrap();
-
-            let start = Instant::now();
-            if let Some(instant) = requested_resume {
-                let mut time = timeout_socket.current_time().unwrap();
-
-                if let Some(duration) = instant.checked_duration_since(start) {
-                    time.tv_sec += duration.as_secs() as i64;
-                    time.tv_nsec += duration.subsec_nanos() as i32;
-                    // Normalize timespec so tv_nsec is not greater than one second.
-                    while time.tv_nsec >= 1_000_000_000 {
-                        time.tv_sec += 1;
-                        time.tv_nsec -= 1_000_000_000;
-                    }
-                }
-
-                timeout_socket.timeout(&time).unwrap();
-            }
-
-            // Wait for event if needed.
-            let mut event = syscall::Event::default();
-            self.window_target.p.event_socket.read(&mut event).unwrap();
-
-            // TODO: handle spurious wakeups (redraw caused wakeup but redraw already handled)
-            match requested_resume {
-                Some(requested_resume) if event.id == timeout_socket.0.fd => {
-                    // If the event is from the special timeout socket, report that resume
-                    // time was reached.
-                    start_cause = StartCause::ResumeTimeReached { start, requested_resume };
-                },
-                _ => {
-                    // Normal window event or spurious timeout.
-                    start_cause = StartCause::WaitCancelled { start, requested_resume };
-                },
-            }
+            self.wait_events(requested_resume);
         }
 
-        event_handler(event::Event::LoopExiting, &self.window_target);
+        event_handler_inner(event::Event::LoopExiting, &self.window_target);
 
         Ok(())
+    }
+
+    pub fn pump_events<F>(
+        &mut self,
+        timeout: Option<Duration>,
+        mut event_handler_inner: F,
+    ) -> PumpStatus
+    where
+        F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
+    {
+        if self.start_cause == StartCause::Init {
+            self.single_iteration(&mut event_handler_inner);
+        }
+
+        if self.window_target.p.exiting() {
+            // TODO: other exit codes
+            return PumpStatus::Exit(0);
+        }
+
+        let requested_resume = timeout.map(|duration| Instant::now() + duration);
+        self.wait_events(requested_resume);
+
+        self.single_iteration(&mut event_handler_inner);
+
+        PumpStatus::Continue
     }
 
     pub fn window_target(&self) -> &event_loop::ActiveEventLoop {

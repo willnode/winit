@@ -37,6 +37,7 @@ pub mod run_on_demand;
     android_platform,
     x11_platform,
     wayland_platform,
+    orbital_platform,
     docsrs,
 ))]
 pub mod pump_events;
@@ -51,5 +52,12 @@ pub mod pump_events;
 ))]
 pub mod modifier_supplement;
 
-#[cfg(any(windows_platform, macos_platform, x11_platform, wayland_platform, docsrs))]
+#[cfg(any(
+    windows_platform,
+    macos_platform,
+    x11_platform,
+    wayland_platform,
+    orbital_platform,
+    docsrs
+))]
 pub mod scancode;

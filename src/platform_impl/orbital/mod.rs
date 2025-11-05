@@ -9,7 +9,10 @@ use smol_str::SmolStr;
 use crate::dpi::{PhysicalPosition, PhysicalSize};
 use crate::keyboard::Key;
 
-pub(crate) use self::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle};
+pub(crate) use self::event_loop::{
+    physicalkey_to_scancode, scancode_to_physicalkey, ActiveEventLoop, EventLoop, EventLoopProxy,
+    OwnedDisplayHandle,
+};
 mod event_loop;
 
 pub use self::window::Window;
@@ -21,7 +24,7 @@ struct RedoxSocket {
 
 impl RedoxSocket {
     fn event() -> syscall::Result<Self> {
-        Self::open_raw("event:")
+        Self::open_raw("/scheme/event")
     }
 
     fn orbital(properties: &WindowProperties<'_>) -> syscall::Result<Self> {
@@ -71,7 +74,7 @@ pub struct TimeSocket(RedoxSocket);
 
 impl TimeSocket {
     fn open() -> syscall::Result<Self> {
-        RedoxSocket::open_raw("time:4").map(Self)
+        RedoxSocket::open_raw("/scheme/time/4").map(Self)
     }
 
     // Read current time.
@@ -158,7 +161,7 @@ impl fmt::Display for WindowProperties<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "orbital:{}/{}/{}/{}/{}/{}",
+            "/scheme/orbital/{}/{}/{}/{}/{}/{}",
             self.flags, self.x, self.y, self.w, self.h, self.title
         )
     }
