@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{mem, slice};
@@ -752,6 +753,18 @@ impl<T: 'static> EventLoop<T> {
             user_events_sender: self.user_events_sender.clone(),
             wake_socket: self.window_target.p.wake_socket.clone(),
         }
+    }
+}
+
+impl<T> AsFd for EventLoop<T> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
+    }
+}
+
+impl<T> AsRawFd for EventLoop<T> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.window_target.p.event_socket.fd.try_into().unwrap()
     }
 }
 

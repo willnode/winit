@@ -8,7 +8,7 @@
 //! See the root-level documentation for information on how to create and use an event loop to
 //! handle events.
 use std::marker::PhantomData;
-#[cfg(any(x11_platform, wayland_platform))]
+#[cfg(any(x11_platform, wayland_platform, orbital_platform))]
 use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::{error, fmt};
@@ -337,7 +337,7 @@ unsafe impl<T> rwh_05::HasRawDisplayHandle for EventLoop<T> {
     }
 }
 
-#[cfg(any(x11_platform, wayland_platform))]
+#[cfg(any(x11_platform, wayland_platform, orbital_platform))]
 impl<T> AsFd for EventLoop<T> {
     /// Get the underlying [EventLoop]'s `fd` which you can register
     /// into other event loop, like [`calloop`] or [`mio`]. When doing so, the
@@ -351,7 +351,7 @@ impl<T> AsFd for EventLoop<T> {
     }
 }
 
-#[cfg(any(x11_platform, wayland_platform))]
+#[cfg(any(x11_platform, wayland_platform, orbital_platform))]
 impl<T> AsRawFd for EventLoop<T> {
     /// Get the underlying [EventLoop]'s raw `fd` which you can register
     /// into other event loop, like [`calloop`] or [`mio`]. When doing so, the
