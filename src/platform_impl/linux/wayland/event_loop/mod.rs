@@ -356,7 +356,7 @@ impl EventLoop {
                 app.window_event(&self.active_event_loop, window_id, event);
             }
 
-            if let Some(new_state) = compositor_update.xdg_window_state {
+            if compositor_update.xdg_window_state.take().is_some() {
                 let window_id = crate::window::WindowId(window_id);
                 let event = WindowEvent::WindowStateChanged;
                 app.window_event(&self.active_event_loop, window_id, event);
