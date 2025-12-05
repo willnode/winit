@@ -313,11 +313,9 @@ impl WindowHandler for WinitState {
         self.window_compositor_updates[pos].suggested_bounds |= configure.suggested_bounds
             != winit_window.last_configure.as_ref().and_then(|last| last.suggested_bounds);
 
-        self.window_compositor_updates[pos].xdg_window_state = winit_window
-            .last_configure
-            .as_ref()
-            .is_none_or(|last| last.state != configure.state)
-            .then_some(configure.state);
+        if winit_window.last_configure.as_ref().is_none_or(|last| last.state != configure.state) {
+            self.window_compositor_updates[pos].xdg_window_state = Some(configure.state);
+        }
 
         self.window_compositor_updates[pos].resized |=
             winit_window.configure(configure, &self.shm, &self.subcompositor_state);
