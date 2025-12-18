@@ -157,3 +157,4 @@ changelog entry.
 - On macOS, fix `WindowEvent::Moved` sometimes being triggered unnecessarily on resize.
 - On MacOS, package manifest definitions of `LSUIElement` will no longer be overridden with the
   default activation policy, unless explicitly provided during initialization.
+- On Redox, handle `EINTR` when reading from `event_socket` instead of panicking.
