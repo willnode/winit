@@ -33,7 +33,7 @@ impl RedoxSocket {
     // example, the seek would change in a potentially unpredictable way if either read or write
     // were called at the same time by multiple threads.
     fn open_raw(path: &str) -> syscall::Result<Self> {
-        let fd = syscall::open(path, syscall::O_RDWR | syscall::O_CLOEXEC)?;
+        let fd = libredox::call::open(path, libredox::flag::O_RDWR | libredox::flag::O_CLOEXEC, 0)?;
         Ok(Self { fd })
     }
 
@@ -97,7 +97,7 @@ struct WindowProperties<'a> {
 
 impl<'a> WindowProperties<'a> {
     fn new(path: &'a str) -> Self {
-        // orbital:flags/x/y/w/h/t
+        // /scheme/orbital/flags/x/y/w/h/t
         let mut parts = path.splitn(6, '/');
         let flags = parts.next().unwrap_or("");
         let x = parts.next().map_or(0, |part| part.parse::<i32>().unwrap_or(0));

@@ -23,3 +23,4 @@ winit-core.workspace = true
 # Platform-specific
 orbclient.workspace = true
 redox_syscall.workspace = true
+libredox.workspace = true
