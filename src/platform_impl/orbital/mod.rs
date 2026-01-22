@@ -36,7 +36,7 @@ impl RedoxSocket {
     // example, the seek would change in a potentially unpredictable way if either read or write
     // were called at the same time by multiple threads.
     fn open_raw(path: &str) -> syscall::Result<Self> {
-        let fd = syscall::open(path, syscall::O_RDWR | syscall::O_CLOEXEC)?;
+        let fd = libredox::call::open(path, libredox::flag::O_RDWR | libredox::flag::O_CLOEXEC, 0)?;
         Ok(Self { fd })
     }
 
