@@ -1,7 +1,12 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use super::{ActiveEventLoop, MonitorHandle, RedoxSocket, TimeSocket, WindowId, WindowProperties};
+use redox_event::{EventFlags, UserData};
+
+use super::{
+    ActiveEventLoop, EventSource, MonitorHandle, RedoxSocket, TimeSocket, WindowId,
+    WindowProperties,
+};
 use crate::cursor::Cursor;
 use crate::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
 use crate::error::{NotSupportedError, RequestError};
@@ -99,13 +104,7 @@ impl Window {
         .expect("failed to open window");
 
         // Add to event socket.
-        el.event_socket
-            .write(&syscall::Event {
-                id: window.fd,
-                flags: syscall::EventFlags::EVENT_READ,
-                data: window.fd,
-            })
-            .unwrap();
+        el.event_socket.subscribe(window.fd(), EventSource::Orbital, EventFlags::READ).unwrap();
 
         let window_socket = Arc::new(window);
 
@@ -143,7 +142,7 @@ impl Window {
     #[inline]
     fn raw_window_handle_rwh_06(&self) -> Result<rwh_06::RawWindowHandle, rwh_06::HandleError> {
         let handle = rwh_06::OrbitalWindowHandle::new({
-            let window = self.window_socket.fd as *mut _;
+            let window = self.window_socket.fd() as *mut _;
             std::ptr::NonNull::new(window).expect("orbital fd should never be null")
         });
         Ok(rwh_06::RawWindowHandle::Orbital(handle))
@@ -158,7 +157,7 @@ impl Window {
 
 impl CoreWindow for Window {
     fn id(&self) -> CoreWindowId {
-        CoreWindowId(WindowId { fd: self.window_socket.fd as u64 })
+        CoreWindowId(WindowId { fd: self.window_socket.fd() as u64 })
     }
 
     #[inline]

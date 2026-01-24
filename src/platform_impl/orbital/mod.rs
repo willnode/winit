@@ -1,8 +1,13 @@
 #![cfg(target_os = "redox")]
 
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Result, Write};
 use std::num::{NonZeroU16, NonZeroU32};
-use std::{fmt, str};
+use std::os::fd::AsRawFd;
+use std::{fmt, mem, slice, str};
 
+use libredox::data::TimeSpec;
+use redox_event::{user_data, EventFlags};
 use smol_str::SmolStr;
 
 pub(crate) use self::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle};
@@ -18,16 +23,19 @@ pub(crate) use crate::cursor::{
 };
 pub(crate) use crate::icon::NoIcon as PlatformIcon;
 
+redox_event::user_data! {
+    pub enum EventSource {
+        Orbital,
+        Time,
+    }
+}
+
 struct RedoxSocket {
-    fd: usize,
+    fd: File,
 }
 
 impl RedoxSocket {
-    fn event() -> syscall::Result<Self> {
-        Self::open_raw("event:")
-    }
-
-    fn orbital(properties: &WindowProperties<'_>) -> syscall::Result<Self> {
+    fn orbital(properties: &WindowProperties<'_>) -> Result<Self> {
         Self::open_raw(&format!("{properties}"))
     }
 
@@ -35,64 +43,63 @@ impl RedoxSocket {
     // non-socket path is used, it could cause read and write to not function as expected. For
     // example, the seek would change in a potentially unpredictable way if either read or write
     // were called at the same time by multiple threads.
-    fn open_raw(path: &str) -> syscall::Result<Self> {
-        let fd = libredox::call::open(path, libredox::flag::O_RDWR | libredox::flag::O_CLOEXEC, 0)?;
+    fn open_raw(path: &str) -> Result<Self> {
+        let fd = OpenOptions::new().read(true).write(true).open(path)?;
         Ok(Self { fd })
     }
 
-    fn read(&self, buf: &mut [u8]) -> syscall::Result<()> {
-        let count = syscall::read(self.fd, buf)?;
-        if count == buf.len() {
-            Ok(())
-        } else {
-            Err(syscall::Error::new(syscall::EINVAL))
-        }
+    fn fd(&self) -> usize {
+        self.fd.as_raw_fd() as usize
     }
 
-    fn write(&self, buf: &[u8]) -> syscall::Result<()> {
-        let count = syscall::write(self.fd, buf)?;
-        if count == buf.len() {
-            Ok(())
-        } else {
-            Err(syscall::Error::new(syscall::EINVAL))
-        }
+    fn read(&self, buf: &mut [u8]) -> Result<()> {
+        (&self.fd).read_exact(buf)
     }
 
-    fn fpath<'a>(&self, buf: &'a mut [u8]) -> syscall::Result<&'a str> {
-        let count = syscall::fpath(self.fd, buf)?;
-        str::from_utf8(&buf[..count]).map_err(|_err| syscall::Error::new(syscall::EINVAL))
+    fn write(&self, buf: &[u8]) -> Result<()> {
+        (&self.fd).write_all(buf)
     }
-}
 
-impl Drop for RedoxSocket {
-    fn drop(&mut self) {
-        let _ = syscall::close(self.fd);
+    fn fpath<'a>(&self, buf: &'a mut [u8]) -> Result<&'a str> {
+        let count = libredox::call::fpath(self.fd(), buf)?;
+        str::from_utf8(&buf[..count])
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))
     }
 }
 
 pub struct TimeSocket(RedoxSocket);
 
 impl TimeSocket {
-    fn open() -> syscall::Result<Self> {
-        RedoxSocket::open_raw("time:4").map(Self)
+    fn open() -> Result<Self> {
+        RedoxSocket::open_raw("/scheme/time/4").map(Self)
     }
 
     // Read current time.
-    fn current_time(&self) -> syscall::Result<syscall::TimeSpec> {
-        let mut timespec = syscall::TimeSpec::default();
-        self.0.read(&mut timespec)?;
+    fn current_time(&self) -> Result<TimeSpec> {
+        let mut timespec: libredox::data::TimeSpec = unsafe { mem::zeroed() };
+        let timespec_bytes = unsafe {
+            slice::from_raw_parts_mut(
+                &mut timespec as *mut _ as *mut u8,
+                mem::size_of::<TimeSpec>(),
+            )
+        };
+        self.0.read(timespec_bytes)?;
         Ok(timespec)
     }
 
     // Write a timeout.
-    fn timeout(&self, timespec: &syscall::TimeSpec) -> syscall::Result<()> {
-        self.0.write(timespec)
+    fn timeout(&self, timespec: &TimeSpec) -> Result<()> {
+        let timespec_bytes = unsafe {
+            slice::from_raw_parts(timespec as *const _ as *const u8, mem::size_of::<TimeSpec>())
+        };
+        self.0.write(timespec_bytes)
     }
 
     // Wake immediately.
-    fn wake(&self) -> syscall::Result<()> {
+    fn wake(&self) -> Result<()> {
         // Writing a default TimeSpec will always trigger a time event.
-        self.timeout(&syscall::TimeSpec::default())
+        let timespec: TimeSpec = unsafe { mem::zeroed() };
+        self.timeout(&timespec)
     }
 }
 
