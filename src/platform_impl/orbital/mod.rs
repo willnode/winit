@@ -178,7 +178,7 @@ impl<'a> fmt::Display for WindowProperties<'a> {
         write!(
             f,
             "{}/{}/{}/{}/{}/{}/{}",
-            std::env::var("ORBITAL_DISPLAY").unwrap_or("/scheme/orbital"),
+            std::env::var("ORBITAL_DISPLAY").unwrap_or("/scheme/orbital".to_string()),
             self.flags,
             self.x,
             self.y,
