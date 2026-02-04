@@ -23,6 +23,7 @@ use dpi::{LogicalSize, PhysicalSize};
 use rwh_06::HandleError;
 use sctk::reexports::client::Proxy;
 use sctk::reexports::client::protocol::wl_surface::WlSurface;
+use sctk::reexports::csd_frame::WindowState;
 use sctk::shm::slot::{Buffer, CreateBufferError, SlotPool};
 use wayland_client::protocol::wl_shm::Format;
 use winit_core::event_loop::ActiveEventLoop as CoreActiveEventLoop;
@@ -104,6 +105,8 @@ pub trait WindowExtWayland {
     fn xdg_toplevel(&self) -> Option<NonNull<c_void>>;
 
     fn xdg_surface_handle<'a>(&'a self) -> Option<&dyn HasXdgSurfaceHandle>;
+
+    fn window_state(&self) -> Option<WindowState>;
 }
 
 impl WindowExtWayland for dyn CoreWindow + '_ {
@@ -113,9 +116,12 @@ impl WindowExtWayland for dyn CoreWindow + '_ {
     }
 
     #[inline]
-
     fn xdg_surface_handle(&self) -> Option<&dyn HasXdgSurfaceHandle> {
         Some(self.cast_ref::<Window>()? as &dyn HasXdgSurfaceHandle)
+    }
+
+    fn window_state(&self) -> Option<WindowState> {
+        self.cast_ref::<Window>()?.xdg_window_state()
     }
 }
 
