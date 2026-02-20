@@ -736,8 +736,16 @@ impl<T: 'static> EventLoop<T> {
             return PumpStatus::Exit(0);
         }
 
-        let requested_resume = timeout.map(|duration| Instant::now() + duration);
-        self.wait_events(requested_resume);
+        match timeout {
+            Some(duration) => {
+                if !duration.is_zero() {
+                    self.wait_events(Some(Instant::now() + duration));
+                }
+            },
+            None => {
+                self.wait_events(None);
+            },
+        }
 
         self.single_iteration(&mut event_handler_inner);
 
