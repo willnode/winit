@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use redox_event::{EventFlags, UserData};
+use redox_event::EventFlags;
 
 use super::{
     ActiveEventLoop, EventSource, MonitorHandle, RedoxSocket, TimeSocket, WindowId,

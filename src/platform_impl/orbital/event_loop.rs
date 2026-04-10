@@ -1,6 +1,5 @@
 use std::cell::Cell;
 use std::collections::VecDeque;
-use std::io::{self, Read};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Instant;
 use std::{mem, slice};
@@ -10,7 +9,7 @@ use orbclient::{
     ButtonEvent, EventOption, FocusEvent, HoverEvent, KeyEvent, MouseEvent, MouseRelativeEvent,
     MoveEvent, QuitEvent, ResizeEvent, ScrollEvent, TextInputEvent,
 };
-use redox_event::{EventFlags, EventQueue, UserData};
+use redox_event::{EventFlags, EventQueue};
 use smol_str::SmolStr;
 
 use super::{

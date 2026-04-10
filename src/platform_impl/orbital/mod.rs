@@ -7,7 +7,6 @@ use std::os::fd::AsRawFd;
 use std::{fmt, mem, slice, str};
 
 use libredox::data::TimeSpec;
-use redox_event::{user_data, EventFlags};
 use smol_str::SmolStr;
 
 pub(crate) use self::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle};
