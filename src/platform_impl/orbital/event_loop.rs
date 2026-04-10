@@ -629,7 +629,7 @@ impl EventLoop {
 
                 if let Some(duration) = instant.checked_duration_since(start) {
                     time.tv_sec += duration.as_secs() as i64;
-                    time.tv_nsec += duration.subsec_nanos() as i64;
+                    time.tv_nsec += duration.subsec_nanos() as std::os::raw::c_long;
                     // Normalize timespec so tv_nsec is not greater than one second.
                     while time.tv_nsec >= 1_000_000_000 {
                         time.tv_sec += 1;
