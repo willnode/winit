@@ -66,7 +66,7 @@ impl RedoxSocket {
 
 impl Drop for RedoxSocket {
     fn drop(&mut self) {
-        let _ = syscall::close(self.fd);
+        let _ = libredox::call::close(self.fd);
     }
 }
 
@@ -78,6 +78,7 @@ impl TimeSocket {
     }
 
     // Read current time.
+    #[allow(unused)]
     fn current_time(&self) -> syscall::Result<syscall::TimeSpec> {
         let mut timespec = syscall::TimeSpec::default();
         self.0.read(&mut timespec)?;
