@@ -291,8 +291,8 @@ xkbcommon-dl = "0.4.2"
 
 [target.'cfg(target_os = "redox")'.dependencies]
 libredox = "0.1.12"
-orbclient = { version = "0.3.50", default-features = false }
-redox_syscall = "0.7"
+orbclient = { version = "0.4", default-features = false }
+redox_syscall = "0.9"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 js-sys = "0.3.70"

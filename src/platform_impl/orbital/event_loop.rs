@@ -137,7 +137,7 @@ pub fn scancode_to_physicalkey(scancode: u32) -> PhysicalKey {
     convert_scancode(scancode.try_into().unwrap_or_default()).0
 }
 
-pub fn physicalkey_to_scancode(physical_key: PhysicalKey) -> Option<u32> {
+pub fn physicalkey_to_scancode(_physical_key: PhysicalKey) -> Option<u32> {
     // TODO
     None
 }
@@ -644,33 +644,20 @@ impl<T: 'static> EventLoop<T> {
     fn wait_events(&mut self, requested_resume: Option<Instant>) {
         // Re-using wake socket caused extra wake events before because there were leftover
         // timeouts, and then new timeouts were added each time a spurious timeout expired.
-        let timeout_socket = TimeSocket::open().unwrap();
-
-        self.window_target
-            .p
-            .event_socket
-            .write(&syscall::Event {
-                id: timeout_socket.0.fd,
-                flags: syscall::EventFlags::EVENT_READ,
-                data: 0,
-            })
-            .unwrap();
-
         let start = Instant::now();
         if let Some(instant) = requested_resume {
-            let mut time = timeout_socket.current_time().unwrap();
-
-            if let Some(duration) = instant.checked_duration_since(start) {
-                time.tv_sec += duration.as_secs() as i64;
-                time.tv_nsec += duration.subsec_nanos() as i32;
-                // Normalize timespec so tv_nsec is not greater than one second.
-                while time.tv_nsec >= 1_000_000_000 {
-                    time.tv_sec += 1;
-                    time.tv_nsec -= 1_000_000_000;
-                }
-            }
-
-            timeout_socket.timeout(&time).unwrap();
+            self.window_target
+                .p
+                .event_socket
+                .write(&syscall::Event {
+                    id: syscall::EVENT_TIMEOUT_ID,
+                    flags: syscall::EventFlags::EVENT_READ,
+                    data: instant
+                        .checked_duration_since(start)
+                        .map(|s| s.as_millis() as usize)
+                        .unwrap_or(0),
+                })
+                .unwrap();
         }
 
         // Wait for event if needed.
@@ -679,7 +666,7 @@ impl<T: 'static> EventLoop<T> {
 
         // TODO: handle spurious wakeups (redraw caused wakeup but redraw already handled)
         match requested_resume {
-            Some(requested_resume) if event.id == timeout_socket.0.fd => {
+            Some(requested_resume) if event.id == syscall::EVENT_TIMEOUT_ID => {
                 // If the event is from the special timeout socket, report that resume
                 // time was reached.
                 self.start_cause = StartCause::ResumeTimeReached { start, requested_resume };
