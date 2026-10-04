@@ -871,6 +871,11 @@ impl ActiveEventLoop {
         self.exit.set(true);
     }
 
+    pub(crate) fn clear_exit(&self) {
+        self.exit.set(false);
+    }
+
+
     pub(crate) fn exiting(&self) -> bool {
         self.exit.get()
     }
