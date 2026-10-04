@@ -173,7 +173,7 @@
 //! [`Event::LoopExiting`]: event::Event::LoopExiting
 //! [`raw_window_handle`]: ./window/struct.Window.html#method.raw_window_handle
 //! [`raw_display_handle`]: ./window/struct.Window.html#method.raw_display_handle
-//! [^1]: `EventLoopExtPumpEvents::pump_app_events()` is only available on Windows, macOS, Android, X11 and Wayland.
+//! [^1]: `EventLoopExtPumpEvents::pump_app_events()` is only available on Windows, macOS, Android, Redox, X11 and Wayland.
 
 #![deny(rust_2018_idioms)]
 #![deny(rustdoc::broken_intra_doc_links)]

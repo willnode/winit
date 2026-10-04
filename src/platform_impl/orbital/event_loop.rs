@@ -111,6 +111,12 @@ fn convert_scancode(scancode: u8) -> (PhysicalKey, Option<NamedKey>) {
         orbclient::K_NUM_7 => (KeyCode::Numpad7, None),
         orbclient::K_NUM_8 => (KeyCode::Numpad8, None),
         orbclient::K_NUM_9 => (KeyCode::Numpad9, None),
+        orbclient::K_NUM_ASTERISK => (KeyCode::NumpadMultiply, None),
+        orbclient::K_NUM_ENTER => (KeyCode::NumpadEnter, Some(NamedKey::Enter)),
+        orbclient::K_NUM_MINUS => (KeyCode::NumpadSubtract, None),
+        orbclient::K_NUM_PLUS => (KeyCode::NumpadAdd, None),
+        orbclient::K_NUM_SLASH => (KeyCode::NumpadDivide, None),
+        orbclient::K_NUM_PERIOD => (KeyCode::NumpadDecimal, None),
         orbclient::K_PERIOD => (KeyCode::Period, None),
         orbclient::K_PGDN => (KeyCode::PageDown, Some(NamedKey::PageDown)),
         orbclient::K_PGUP => (KeyCode::PageUp, Some(NamedKey::PageUp)),
@@ -127,6 +133,13 @@ fn convert_scancode(scancode: u8) -> (PhysicalKey, Option<NamedKey>) {
         orbclient::K_VOLUME_DOWN => (KeyCode::AudioVolumeDown, Some(NamedKey::AudioVolumeDown)),
         orbclient::K_VOLUME_TOGGLE => (KeyCode::AudioVolumeMute, Some(NamedKey::AudioVolumeMute)),
         orbclient::K_VOLUME_UP => (KeyCode::AudioVolumeUp, Some(NamedKey::AudioVolumeUp)),
+        orbclient::K_INS => (KeyCode::Insert, Some(NamedKey::Insert)),
+        orbclient::K_PRTSC => (KeyCode::PrintScreen, Some(NamedKey::PrintScreen)),
+        orbclient::K_NUM => (KeyCode::NumLock, Some(NamedKey::NumLock)),
+        orbclient::K_SCROLL => (KeyCode::ScrollLock, Some(NamedKey::ScrollLock)),
+        orbclient::K_APP => (KeyCode::ContextMenu, Some(NamedKey::ContextMenu)),
+        orbclient::K_MEDIA_STOP => (KeyCode::MediaStop, Some(NamedKey::MediaStop)),
+        orbclient::K_POWER => (KeyCode::Power, Some(NamedKey::Power)),
 
         _ => return (PhysicalKey::Unidentified(NativeKeyCode::Unidentified), None),
     };
@@ -283,7 +296,7 @@ impl EventState {
 }
 
 pub struct EventLoop<T> {
-    start_cause: StartCause,
+    loop_running: bool,
     windows: Vec<(Arc<RedoxSocket>, EventState)>,
     window_target: event_loop::ActiveEventLoop,
     user_events_sender: mpsc::Sender<T>,
@@ -316,7 +329,7 @@ impl<T: 'static> EventLoop<T> {
             .map_err(|error| EventLoopError::Os(os_error!(error)))?;
 
         Ok(Self {
-            start_cause: StartCause::Init,
+            loop_running: false,
             windows: Vec::new(),
             window_target: event_loop::ActiveEventLoop {
                 p: ActiveEventLoop {
@@ -510,7 +523,7 @@ impl<T: 'static> EventLoop<T> {
         }
     }
 
-    fn single_iteration<F>(&mut self, event_handler_inner: &mut F)
+    fn single_iteration<F>(&mut self, event_handler_inner: &mut F, cause: StartCause)
     where
         F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
     {
@@ -519,9 +532,9 @@ impl<T: 'static> EventLoop<T> {
                 event_handler_inner(event, window_target);
             };
 
-        event_handler(event::Event::NewEvents(self.start_cause), &self.window_target);
+        event_handler(event::Event::NewEvents(cause), &self.window_target);
 
-        if self.start_cause == StartCause::Init {
+        if cause == StartCause::Init {
             event_handler(event::Event::Resumed, &self.window_target);
         }
 
@@ -641,100 +654,107 @@ impl<T: 'static> EventLoop<T> {
         event_handler(event::Event::AboutToWait, &self.window_target);
     }
 
-    fn wait_events(&mut self, requested_resume: Option<Instant>) {
-        // Re-using wake socket caused extra wake events before because there were leftover
-        // timeouts, and then new timeouts were added each time a spurious timeout expired.
+    pub fn run<F>(mut self, event_handler: F) -> Result<(), EventLoopError>
+    where
+        F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
+    {
+        self.run_on_demand(event_handler)
+    }
+
+    pub fn run_on_demand<F>(&mut self, mut event_handler: F) -> Result<(), EventLoopError>
+    where
+        F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
+    {
+        loop {
+            match self.pump_events(None, &mut event_handler) {
+                PumpStatus::Exit(0) => {
+                    break Ok(());
+                },
+                PumpStatus::Exit(code) => {
+                    break Err(EventLoopError::ExitFailure(code));
+                },
+                _ => {
+                    continue;
+                },
+            }
+        }
+    }
+
+    pub fn pump_events<F>(
+        &mut self,
+        mut timeout: Option<Duration>,
+        mut event_handler_inner: F,
+    ) -> PumpStatus
+    where
+        F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
+    {
+        if !self.loop_running {
+            self.loop_running = true;
+
+            self.single_iteration(&mut event_handler_inner, StartCause::Init);
+        }
+
+        if self.window_target.p.exiting() {
+            self.loop_running = false;
+            // TODO: other exit codes
+            return PumpStatus::Exit(0);
+        }
+
         let start = Instant::now();
-        if let Some(instant) = requested_resume {
+        timeout = {
+            let control_flow_timeout = match self.window_target.control_flow() {
+                ControlFlow::Wait => None,
+                ControlFlow::Poll => Some(Duration::ZERO),
+                ControlFlow::WaitUntil(wait_deadline) => {
+                    Some(wait_deadline.saturating_duration_since(start))
+                },
+            };
+            min_timeout(control_flow_timeout, timeout)
+        };
+
+        if let Some(timeout) = timeout {
             self.window_target
                 .p
                 .event_socket
                 .write(&syscall::Event {
                     id: syscall::EVENT_TIMEOUT_ID,
                     flags: syscall::EventFlags::EVENT_READ,
-                    data: instant
-                        .checked_duration_since(start)
-                        .map(|s| s.as_millis() as usize)
-                        .unwrap_or(0),
+                    data: timeout.as_millis() as usize,
                 })
-                .unwrap();
+                .expect("failed to register EVENT_TIMEOUT_ID")
         }
 
         // Wait for event if needed.
-        let mut event = syscall::Event::default();
-        self.window_target.p.event_socket.read(&mut event).unwrap();
-
-        // TODO: handle spurious wakeups (redraw caused wakeup but redraw already handled)
-        match requested_resume {
-            Some(requested_resume) if event.id == syscall::EVENT_TIMEOUT_ID => {
-                // If the event is from the special timeout socket, report that resume
-                // time was reached.
-                self.start_cause = StartCause::ResumeTimeReached { start, requested_resume };
-            },
-            _ => {
-                // Normal window event or spurious timeout.
-                self.start_cause = StartCause::WaitCancelled { start, requested_resume };
-            },
-        }
-    }
-
-    pub fn run<F>(mut self, mut event_handler_inner: F) -> Result<(), EventLoopError>
-    where
-        F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
-    {
-        loop {
-            self.single_iteration(&mut event_handler_inner);
-
-            if self.window_target.p.exiting() {
-                break;
-            }
-
-            let requested_resume = match self.window_target.p.control_flow() {
-                ControlFlow::Poll => {
-                    self.start_cause = StartCause::Poll;
-                    continue;
+        let event = loop {
+            let mut event = syscall::Event::default();
+            match self.window_target.p.event_socket.read(&mut event) {
+                Ok(_) => break event,
+                Err(err) if err.errno == syscall::EINTR => continue,
+                Err(err) => {
+                    panic!("failed to read event: {err}");
                 },
-                ControlFlow::Wait => None,
-                ControlFlow::WaitUntil(instant) => Some(instant),
-            };
+            }
+        };
 
-            self.wait_events(requested_resume);
+        if timeout.is_some() && event.id == syscall::EVENT_TIMEOUT_ID {
+            // NB: EVENT_TIMEOUT_ID is not a regular event ID.
+            // Here nothing is happened yet.
+            return PumpStatus::Continue;
         }
 
-        event_handler_inner(event::Event::LoopExiting, &self.window_target);
-
-        Ok(())
-    }
-
-    pub fn pump_events<F>(
-        &mut self,
-        timeout: Option<Duration>,
-        mut event_handler_inner: F,
-    ) -> PumpStatus
-    where
-        F: FnMut(event::Event<T>, &event_loop::ActiveEventLoop),
-    {
-        if self.start_cause == StartCause::Init {
-            self.single_iteration(&mut event_handler_inner);
-        }
-
-        if self.window_target.p.exiting() {
-            // TODO: other exit codes
-            return PumpStatus::Exit(0);
-        }
-
-        match timeout {
-            Some(duration) => {
-                if !duration.is_zero() {
-                    self.wait_events(Some(Instant::now() + duration));
+        let cause = match self.window_target.control_flow() {
+            ControlFlow::Poll => StartCause::Poll,
+            ControlFlow::Wait => StartCause::WaitCancelled { start, requested_resume: None },
+            ControlFlow::WaitUntil(deadline) => {
+                if Instant::now() < deadline {
+                    StartCause::WaitCancelled { start, requested_resume: Some(deadline) }
+                } else {
+                    StartCause::ResumeTimeReached { start, requested_resume: deadline }
                 }
             },
-            None => {
-                self.wait_events(None);
-            },
-        }
+        };
 
-        self.single_iteration(&mut event_handler_inner);
+        self.single_iteration(&mut event_handler_inner, cause);
 
         PumpStatus::Continue
     }
@@ -877,4 +897,11 @@ impl OwnedDisplayHandle {
     ) -> Result<rwh_06::RawDisplayHandle, rwh_06::HandleError> {
         Ok(rwh_06::OrbitalDisplayHandle::new().into())
     }
+}
+
+/// Returns the minimum `Option<Duration>`, taking into account that `None`
+/// equates to an infinite timeout, not a zero timeout (so can't just use
+/// `Option::min`)
+fn min_timeout(a: Option<Duration>, b: Option<Duration>) -> Option<Duration> {
+    a.map_or(b, |a_timeout| b.map_or(Some(a_timeout), |b_timeout| Some(a_timeout.min(b_timeout))))
 }
