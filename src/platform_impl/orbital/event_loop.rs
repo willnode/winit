@@ -14,7 +14,7 @@ use orbclient::{
 use smol_str::SmolStr;
 
 use crate::error::EventLoopError;
-use crate::event::{self, Ime, Modifiers, StartCause};
+use crate::event::{self, Modifiers, StartCause};
 use crate::event_loop::{self, ControlFlow, DeviceEvents};
 use crate::keyboard::{
     Key, KeyCode, KeyLocation, ModifiersKeys, ModifiersState, NamedKey, NativeKey, NativeKeyCode,
@@ -191,6 +191,7 @@ struct EventState {
     keyboard: KeyboardModifierState,
     mouse: MouseButtonState,
     resize_opt: Option<(u32, u32)>,
+    text_input_event: Option<TextInputEvent>,
 }
 
 impl EventState {
@@ -356,8 +357,13 @@ impl<T: 'static> EventLoop<T> {
     ) where
         F: FnMut(event::Event<T>),
     {
+        let text_input_event = event_state.text_input_event.take();
+        if text_input_event.is_some() && !matches!(event_option, EventOption::Key(_)) {
+            tracing::warn!("got TextInput event without following Key event");
+        }
+
         match event_option {
-            EventOption::Key(KeyEvent { character, scancode, pressed }) => {
+            EventOption::Key(KeyEvent { character: _, scancode, pressed }) => {
                 // Convert scancode
                 let (physical_key, named_key_opt) = convert_scancode(scancode);
 
@@ -372,6 +378,7 @@ impl<T: 'static> EventLoop<T> {
                 let mut text_with_all_modifiers = None;
 
                 // Set key and text based on character
+                let character = text_input_event.map_or('\0', |event| event.character);
                 if character != '\0' {
                     let mut tmp = [0u8; 4];
                     let character_str = character.encode_utf8(&mut tmp);
@@ -425,15 +432,8 @@ impl<T: 'static> EventLoop<T> {
                     })
                 }
             },
-            EventOption::TextInput(TextInputEvent { character }) => {
-                event_handler(event::Event::WindowEvent {
-                    window_id: RootWindowId(window_id),
-                    event: event::WindowEvent::Ime(Ime::Preedit("".into(), None)),
-                });
-                event_handler(event::Event::WindowEvent {
-                    window_id: RootWindowId(window_id),
-                    event: event::WindowEvent::Ime(Ime::Commit(character.into())),
-                });
+            EventOption::TextInput(event) => {
+                event_state.text_input_event = Some(event);
             },
             EventOption::Mouse(MouseEvent { x, y }) => {
                 event_handler(event::Event::WindowEvent {
@@ -874,7 +874,6 @@ impl ActiveEventLoop {
     pub(crate) fn clear_exit(&self) {
         self.exit.set(false);
     }
-
 
     pub(crate) fn exiting(&self) -> bool {
         self.exit.get()
